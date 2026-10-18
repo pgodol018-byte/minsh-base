@@ -97,8 +97,14 @@ int main(void)
 		}
 
 		// Execute the command pipeline.
-		if ((result = execute_pipeline(&pipeline)) < 0)
+		result=execute_pipeline(&pipeline);
+		if(result== -2){
+			pipeline_free(&pipeline);
+			exit(0);
+		}
+		else if(result == -1){
 			perror("minish");
+		}
 
 		// Clear the pipeline.
 		pipeline_free(&pipeline);
@@ -208,7 +214,26 @@ static int execute_pipeline(const struct pipeline *pipeline)
 	// an internal command. Remember that the command name is always stored in
 	// argv[0].
 
-	// Add your code here...
+	if(pipeline->command_count==1){
+		const struct command *cmd= &pipeline->commands[0];
+		if(cmd->argc>0 && strcmp(cmd->argv[0],"exit")==0){
+			return -2;
+		}
+		if(cmd->argc>0 && strcmp(cmd->argv[0],"cd")==0){
+			const char *path;
+			if(cmd->argc>1){
+				path=cmd->argv[1];
+			}
+			else{
+				path=getenv("HOME");
+			}
+			if(path==NULL || chdir(path)== -1){
+				perror("cd");
+				return -1;
+			}
+			return 0;
+		}
+	}
 
 	// No internal command found. We have to execute a new program for each
 	// command in the pipeline.
@@ -224,7 +249,20 @@ static int execute_pipeline(const struct pipeline *pipeline)
 	// E.g., cmd1 | cmd2 : 2 commands.
 	// E.g., cmd1 : 1 command.
 
-	// Add your code here...
+	for(size_t i=0; i<pipeline->command_count;i++){
+		pid_t pid=fork();
+		if(pid<0){
+			perror("fork");
+			free(pids);
+			return -1;
+		}
+		if (pid==0){
+			struct command *cmd= &pipeline->commands[i];
+			execvp(cmd->argv[0],cmd->argv);
+			perror("execvp");
+			_exit(127);
+		}
+	}
         
 	free(pids);
 	return result;
