@@ -43,6 +43,7 @@ static void init_bg_jobs(struct job *jobs);
 static void add_bg_job(const pid_t pid);
 static void remove_bg_job(const pid_t pid);
 static void reap_bg_jobs(void);
+static void handle_sigchld(int sig);
 
 // Add the prototypes of helper funcitons here...
 
@@ -58,8 +59,27 @@ int main(void)
 	int error;
 	int result;
 
+	init_bg_jobs(jobs);
+
 	// Install the required signal handlers here.
-	// Add your code here.
+	struct sigaction sa={0};
+
+	sa.sa_handler=handle_sigchld;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags=SA_RESTART | SA_NOCLDSTOP;
+
+	if(sigaction(SIGCHLD,&sa,NULL)==-1){
+		perror("sigaction");
+		return EXIT_FAILURE;
+	}
+	struct sigaction int_action={0};
+	int_action.sa_handler=SIG_IGN;
+	sigemptyset(&int_action.sa_mask);
+
+	if(sigaction(SIGINT,&int_action,NULL)==-1){
+		perror("sigaction");
+		return EXIT_FAILURE;
+	}
 	 
 	// The main shell loop.
 	for (;;) {
@@ -165,7 +185,11 @@ void add_bg_job(const pid_t pid)
 	for (i = 0; i < MAX_JOBS; i++) {
 		// Find the first position in the array with active == 0 and add the
 		// new job there. Then call break to exit the loop.
-        // Add your code here...
+        if(jobs[i].active==0){
+			jobs[i].pid=pid;
+			jobs[i].active=1;
+			break;
+		}
 	}
 }
 
@@ -177,7 +201,11 @@ void remove_bg_job(const pid_t pid)
 		// Find the first position in the array where its pid matches with the
 		// pid parameter of the function and then clean it by setting pid to
 		// -1 and active to 0.
-        // Add your code here...
+        if(jobs[i].active && jobs[i].pid==pid){
+			jobs[i].pid=-1;
+			jobs[i].active=0;
+			break;
+		}
 	}
 }
 
@@ -193,9 +221,22 @@ void reap_bg_jobs(void) {
 		// found a terminated background process. Call remove_bg_job()
 		// properly to remove this process from the jobs array.
           		
-        // Add your code here...
+        if(jobs[i].active){
+			pid=waitpid(jobs[i].pid,&status,WNOHANG);
+
+			if(pid>0||(pid==-1 &&errno==ECHILD)){
+				remove_bg_job(jobs[i].pid);
+			}
+		}
 	}	
 }
+static void handle_sigchld(int sig){
+	(void)sig;
+	int saved_errno=errno;
+	reap_bg_jobs();
+	errno=saved_errno;
+ }
+
 
 /**
  * @brief Execute all commands in a parsed pipeline.
@@ -204,6 +245,11 @@ void reap_bg_jobs(void) {
  *
  * @return 0 on success, -1 on error, -2 if exit was requested.
  */
+
+
+ 
+
+
 static int execute_pipeline(const struct pipeline *pipeline)
 {
 	pid_t *pids;	
@@ -248,22 +294,62 @@ static int execute_pipeline(const struct pipeline *pipeline)
 	// tells us the number of commands in the pipeline.
 	// E.g., cmd1 | cmd2 : 2 commands.
 	// E.g., cmd1 : 1 command.
+	sigset_t block_set,old_set;
+
+	sigemptyset(&block_set);
+	sigaddset(&block_set,SIGCHLD);
+
+	if(sigprocmask(SIG_BLOCK,&block_set,&old_set)==-1){
+		perror("sigprockmask");
+		free(pids);
+		return -1;
+	}
 
 	for(size_t i=0; i<pipeline->command_count;i++){
 		pid_t pid=fork();
 		if(pid<0){
 			perror("fork");
+			sigprocmask(SIG_SETMASK,&old_set,NULL);
 			free(pids);
 			return -1;
 		}
 		if (pid==0){
+			if(sigprocmask(SIG_SETMASK,&old_set,NULL)==-1){
+				perror("sigprocmask");
+				_exit(127);
+			}
+
+			if(!pipeline->background){
+				struct sigaction dfl={0};
+
+				dfl.sa_handler=SIG_DFL;
+				sigemptyset(&dfl.sa_mask);
+
+				if(sigaction(SIGINT,&dfl,NULL)==-1){
+					perror("sigaction");
+					_exit(127);
+				}
+			}
+
 			struct command *cmd= &pipeline->commands[i];
 			execvp(cmd->argv[0],cmd->argv);
 			perror("execvp");
 			_exit(127);
 		}
+		pids[i]=pid;
+
+		if(pipeline->background){
+			add_bg_job(pid);
+		}
 	}
-        
+	if(!pipeline->background){
+		for(size_t i=0;i<pipeline->command_count;i++){
+			waitpid(pids[i],NULL,0);
+		}
+	}
+    
+	sigprocmask(SIG_SETMASK,&old_set,NULL);
+	
 	free(pids);
 	return result;
 }
