@@ -305,7 +305,21 @@ static int execute_pipeline(const struct pipeline *pipeline)
 		return -1;
 	}
 
+	int prev_fd= -1;
+
 	for(size_t i=0; i<pipeline->command_count;i++){
+		int pipefd[2]={-1,-1};
+		if(i+1<pipeline->command_count){
+			if(pipe(pipefd)==-1){
+				perror("pipe");
+				if(prev_fd != -1){
+					close(prev_fd);
+				}
+				sigprocmask(SIG_SETMASK,&old_set,NULL);
+				free(pids);
+				return -1;
+			}
+		}
 		pid_t pid=fork();
 		if(pid<0){
 			perror("fork");
@@ -318,20 +332,89 @@ static int execute_pipeline(const struct pipeline *pipeline)
 				perror("sigprocmask");
 				_exit(127);
 			}
-
-			if(!pipeline->background){
-				struct sigaction dfl={0};
-
-				dfl.sa_handler=SIG_DFL;
-				sigemptyset(&dfl.sa_mask);
-
-				if(sigaction(SIGINT,&dfl,NULL)==-1){
-					perror("sigaction");
-					_exit(127);
+		
+					if(prev_fd != -1){
+						if(dup2(prev_fd,STDIN_FILENO)==-1){
+							perror("dup2");
+							_exit(127);
+						}
 				}
-			}
+				if(pipefd[1] != -1){
+					if(dup2(pipefd[1],STDOUT_FILENO)== -1){
+						perror("dup2 STDOUT");
+						_exit(127);
+					}
+				}
+				if(prev_fd !=1){
+					close(prev_fd);
+				}
+				if(pipefd[0]!= -1){
+					close(pipefd[0]);
+				}
+				if(pipefd[1] != -1){
+					close(pipefd[1]);
+				}
+
+				if(!pipeline->background){
+					struct sigaction dfl={0};
+
+			dfl.sa_handler=SIG_DFL;
+			sigemptyset(&dfl.sa_mask);
+
+			if(sigaction(SIGINT,&dfl,NULL)==-1){
+				perror("sigaction");
+					_exit(127);
+					}
+				}
 
 			struct command *cmd= &pipeline->commands[i];
+			
+
+			for(size_t j=0; j< cmd->redirect_count; j++){
+				struct redirect *redir=&cmd->redirects[j];
+				if(redir->type==REDIRECT_OUTPUT){
+					int fd=open(redir->path,O_WRONLY| O_CREAT| O_TRUNC,0644);
+
+					if(fd==-1){
+						perror("open");
+						_exit(127);
+					}
+					if(dup2(fd,STDOUT_FILENO)==-1){
+						perror("dup2");
+						close(fd);
+						_exit(127);
+					}
+					close(fd);
+				}
+				if(redir->type==REDIRECT_INPUT){
+					int fd= open(redir->path,O_RDONLY);
+
+					if(fd==-1){
+						perror("open");
+						_exit(127);
+					}
+					if(dup2(fd,STDIN_FILENO)==-1){
+						perror("dup2");
+						close(fd);
+						_exit(127);
+					}
+					close(fd);
+				}
+				if(redir->type==REDIRECT_APPEND){
+					int fd=open(redir->path,O_WRONLY| O_CREAT | O_APPEND, 0644);
+
+					if(fd==-1){
+						perror("open");
+						_exit(127);
+					}
+					if(dup2(fd,STDOUT_FILENO)==-1){
+						perror("dup2");
+						close(fd);
+						_exit(127);
+					}
+					close(fd);
+				}
+			}
 			execvp(cmd->argv[0],cmd->argv);
 			perror("execvp");
 			_exit(127);
@@ -341,7 +424,17 @@ static int execute_pipeline(const struct pipeline *pipeline)
 		if(pipeline->background){
 			add_bg_job(pid);
 		}
+		if(prev_fd != -1){
+			close(prev_fd);
+		}
+		if(pipefd[1]!=-1){
+			close(pipefd[1]);
+		}
+		prev_fd = pipefd[0];
 	}
+	if(prev_fd != -1){
+			close(prev_fd);
+		}
 	if(!pipeline->background){
 		for(size_t i=0;i<pipeline->command_count;i++){
 			waitpid(pids[i],NULL,0);
