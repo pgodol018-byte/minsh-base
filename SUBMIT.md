@@ -2,11 +2,11 @@
 
 ## Members
 ### Member 1
-- Name: SPYRIDON KANIDIS
+- Name:Σπυρίδων Κανίδης
 - Academic ID:IIS23200
 
 ### Member 2
-- Name: GKONTOLIAS PANAGIWTHS
+- Name: Γκοντόλας Παναγιώτης
 - Academic ID:IIS25110
 
 ## Σύντομη περιγραφή υλοποίησης
