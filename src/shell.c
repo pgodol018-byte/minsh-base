@@ -138,7 +138,13 @@ int main(void)
 static void print_prompt(void)
 {
 	if (isatty(STDIN_FILENO) != 0) {
+		char cwd[1024];
+		if (getcwd(cwd, sizeof(cwd)) !=NULL){
+			(void)printf("minish:%sS ", cwd);}
+			else {
+		
 		(void)printf("minish$ ");
+			}
 		(void)fflush(stdout);
 	}
 }
@@ -345,7 +351,7 @@ static int execute_pipeline(const struct pipeline *pipeline)
 						_exit(127);
 					}
 				}
-				if(prev_fd !=1){
+				if(prev_fd !=-1){
 					close(prev_fd);
 				}
 				if(pipefd[0]!= -1){
