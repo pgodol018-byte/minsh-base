@@ -2,8 +2,8 @@
 /*
  * Minish shell.
  *
- * Add The name of the first team member here in the form Surname Lastname, iis...
- * Add The name of the first team member here in the form Surname Lastname, iis...
+ * Κανίδης Σπυρίδων, IIS23200
+ * Γκοντόλας Παναγιώτης, IIS25110
 */
 
 #include <errno.h>
@@ -140,7 +140,7 @@ static void print_prompt(void)
 	if (isatty(STDIN_FILENO) != 0) {
 		char cwd[1024];
 		if (getcwd(cwd, sizeof(cwd)) !=NULL){
-			(void)printf("minish:%sS ", cwd);}
+			(void)printf("minish:%s$ ", cwd);}
 			else {
 		
 		(void)printf("minish$ ");
